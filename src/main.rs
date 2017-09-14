@@ -19,6 +19,45 @@ fn main() {
 	println!("Parsed truth table with {} input bits -> {} output bits",
 	         input_bits, output_bits);
 	println!("({} input lines.)", inp.len()/input_bits);
+
+	let gray = gray_code(input_bits);
+	for g in gray.iter() {
+		for bit in g.iter() {
+			print!("{}", if *bit { 1 } else { 0 });
+		}
+		println!("");
+	}
+}
+
+// really this returns a Vec<[usize; nbits]>, but Rust's variable-length arrays
+// are vectors.
+fn gray_code(nbits: usize) -> Vec<Vec<bool>> {
+	let gray1: Vec<Vec<bool>> = vec![vec![false], vec![true]];
+	let mut cur = gray1;
+	for _ in 1..nbits {
+		cur = gray_code_r(cur);
+	}
+	cur
+}
+
+// takes an 'n' bit gray code and computes the gray code for n+1 bits
+fn gray_code_r(gray: Vec<Vec<bool>>) -> Vec<Vec<bool>> {
+	// prepend 0's (false) to the original list
+	let list0: Vec<Vec<bool>> =	gray.iter().map(|bitstring| {
+		let mut copy = bitstring.clone();
+		copy.insert(0, false);
+		copy
+	}).collect();
+	// prepend 1's (true) to the reversed original list
+	let mut list1: Vec<Vec<bool>> =	gray.iter().rev().map(|bitstring| {
+		let mut copy = bitstring.clone();
+		copy.insert(0, true);
+		copy
+	}).collect();
+	// return the concatenation of the old and new lists.
+	let mut concat = list0;
+	concat.append(&mut list1);
+	concat
 }
 
 // parses a truth table in a CSV file with
