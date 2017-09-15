@@ -1,32 +1,85 @@
 extern crate csv;
 use std::io;
 
+// A single entry in a truth table.
+#[derive(Clone, Debug, PartialEq)]
+struct Entry {
+	input: Vec<bool>,
+	output: Vec<bool>,
+}
+impl Entry {
+	fn default() -> Self { Entry{input: vec![], output: vec![]} }
+	#[allow(dead_code)]
+	fn new(inp: Vec<bool>, outp: Vec<bool>) -> Self {
+		Entry{input: inp.clone(), output: outp.clone()}
+	}
+
+	fn clear(&mut self) {
+		self.input.clear();
+		self.output.clear();
+	}
+}
+
+// a truth table of input/output bits.
+struct Truth {
+	table: Vec<Entry>,
+}
+
+impl Truth {
+	fn default() -> Self { Truth{table: vec![]} }
+	#[allow(dead_code)]
+	fn new(inp: Vec<Vec<bool>>, outp: Vec<Vec<bool>>) -> Self {
+		assert_eq!(inp.len(), outp.len());
+		let mut entlist: Vec<Entry> = vec![];
+		for i in 0..inp.len() {
+			entlist.push(Entry::new(inp[i].clone(), outp[i].clone()));
+		}
+		Truth{table: entlist}
+	}
+
+	fn solution(&self, inp: Vec<bool>) -> Vec<bool> {
+		let foo = self.table.iter().find(|tbl| { tbl.input == inp });
+		match foo {
+			None => panic!("cannot find bit pattern {:?}", inp),
+			Some(x) => x.output.clone(),
+		}
+	}
+
+	fn len(&self) -> usize { return self.table.len() }
+}
+
 fn main() {
 	let input_bits = 7;
 	let output_bits = 4;
 	let header_lines = 2;
-	let (inp, outp) = parse(io::stdin(), header_lines, input_bits, output_bits);
-	if (inp.len()/input_bits) != (outp.len()/output_bits) {
-		println!("Different number of input/output lines?  Parse error.");
-		std::process::exit(1);
+	let tbl = parse(io::stdin(), header_lines, input_bits, output_bits);
+	for ent in tbl.table.iter() {
+		if ent.input.len() != input_bits {
+			println!("Incorrect number of bits ({}, should be {}) for elem {:?}.",
+			         ent.input.len(), input_bits, ent.input);
+			std::process::exit(1);
+		}
 	}
 	let two: i32 = 2;
-	if inp.len()/input_bits != two.pow(input_bits as u32) as usize {
-		println!("Incorrect number of inputs ({}) for {} bits.",
-		         inp.len()/input_bits, input_bits);
+	if tbl.len() != two.pow(input_bits as u32) as usize {
+		println!("Table is two short ({} elems) for {} bits.", tbl.len(),
+		         input_bits);
 		std::process::exit(1);
 	}
 	println!("Parsed truth table with {} input bits -> {} output bits",
 	         input_bits, output_bits);
-	println!("({} input lines.)", inp.len()/input_bits);
+	println!("({} input lines.)", tbl.len());
 
 	let gray = gray_code(input_bits);
 	for g in gray.iter() {
+		assert!(g.len() == input_bits);
 		for bit in g.iter() {
 			print!("{}", if *bit { 1 } else { 0 });
 		}
 		println!("");
 	}
+	let blah = vec![false,false,false,true,true,false,false];
+	println!("soln: {:?}", tbl.solution(blah));
 }
 
 // really this returns a Vec<[usize; nbits]>, but Rust's variable-length arrays
@@ -65,7 +118,7 @@ fn gray_code_r(gray: Vec<Vec<bool>>) -> Vec<Vec<bool>> {
 //   NIN inputs as the leftmost NIN columns
 //   NOUT outputs as the rightmost NOUT columns
 fn parse<T: std::io::Read>(data: T, nheader: usize, nin: usize, nout: usize) ->
-	(Vec<bool>, Vec<bool>) {
+	Truth {
 	let mut rdr = csv::ReaderBuilder::new()
 		.has_headers(false)
 		.from_reader(data);
@@ -75,10 +128,13 @@ fn parse<T: std::io::Read>(data: T, nheader: usize, nin: usize, nout: usize) ->
 		iter.next();
 		line = line + 1;
 	}
-	let mut inputs: Vec<bool> = vec![];
-	let mut outputs: Vec<bool> = vec![];
+	let mut tbl = Truth::default();
+	let mut ent = Entry::default();
 
 	for result in iter {
+		ent.input.clear();
+		ent.output.clear();
+
 		let record = result.expect("a CSV record");
 		line = line + 1;
 		for i in 0..nin {
@@ -90,9 +146,8 @@ fn parse<T: std::io::Read>(data: T, nheader: usize, nin: usize, nout: usize) ->
 					false
 				},
 			};
-			inputs.push(on);
+			ent.input.push(on);
 		}
-		assert_eq!(inputs.len()%nin, 0);
 
 		// we take the right*most* NOUT columns for the outputs.  Note that this is
 		// not columns nin through nin+nout: there could be "spacer" columns
@@ -107,17 +162,16 @@ fn parse<T: std::io::Read>(data: T, nheader: usize, nin: usize, nout: usize) ->
 					false
 				},
 			};
-			outputs.push(on);
+			ent.output.push(on);
 		}
-		assert!(outputs.len() % nout == 0);
+		tbl.table.push(ent.clone());
+		ent.clear()
 	}
-	assert_eq!(inputs.len()/nin, line-nheader);
-	assert_eq!(outputs.len()/nout, line-nheader);
-	println!("retvals have {}, {} lines.", inputs.len()/nin, outputs.len()/nout);
-	return (inputs, outputs);
+	println!("parsed {} lines.", tbl.len());
+	return tbl;
 }
 
-#[test]
+#[cfg(test)]
 mod test {
 	use super::*;
 
@@ -132,8 +186,8 @@ mod test {
 	#[test]
 	fn read_test() {
 		let eg = example_head();
-		let (inp, outp) = parse(eg.as_bytes(), 2, 8, 4);
+		let tbl = parse(eg.as_bytes(), 2, 8, 4);
 		// should be the same number of lines:
-		assert_eq!(inp.len() % 8, outp.len() % 4);
+		assert_eq!(tbl.len(), 2);
 	}
 }
