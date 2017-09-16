@@ -20,7 +20,6 @@ impl Entry {
 	}
 }
 
-// a truth table of input/output bits.
 struct Truth {
 	table: Vec<Entry>,
 }
@@ -62,7 +61,7 @@ fn main() {
 	}
 	let two: i32 = 2;
 	if tbl.len() != two.pow(input_bits as u32) as usize {
-		println!("Table is two short ({} elems) for {} bits.", tbl.len(),
+		println!("Table is too short ({} elems) for {} bits.", tbl.len(),
 		         input_bits);
 		std::process::exit(1);
 	}
@@ -132,8 +131,7 @@ fn parse<T: std::io::Read>(data: T, nheader: usize, nin: usize, nout: usize) ->
 	let mut ent = Entry::default();
 
 	for result in iter {
-		ent.input.clear();
-		ent.output.clear();
+		ent.clear();
 
 		let record = result.expect("a CSV record");
 		line = line + 1;
@@ -167,7 +165,6 @@ fn parse<T: std::io::Read>(data: T, nheader: usize, nin: usize, nout: usize) ->
 		tbl.table.push(ent.clone());
 		ent.clear()
 	}
-	println!("parsed {} lines.", tbl.len());
 	return tbl;
 }
 
