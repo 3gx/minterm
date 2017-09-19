@@ -85,13 +85,6 @@ impl Entry {
 		self.output.clear();
 	}
 
-	fn mergeable(&self, entry: &Entry) -> bool {
-		assert!(self.input.len() == entry.input.len());
-		assert!(self.output.len() == entry.output.len());
-		assert!(self.input != entry.input); // would be okay, but ... why dups?
-		return self.output == entry.output;
-	}
-
 	// returns the number of bits that the inputs differ by.
 	fn n_bit_differs(&self, entry: &Entry) -> usize {
 		assert!(self.input.len() == entry.input.len());
@@ -112,26 +105,158 @@ impl Entry {
 // a'b', a'b, and ab are all terms.  We don't have symbolic names in a program,
 // of course, so we just say we have a list where each element is an index and
 // a boolean.  So (0, false) means "a'", whereas (1, true) means "b".
+type Variable = (usize, bool);
 #[derive(Clone, Debug, PartialEq)]
 struct Term {
-	index: usize,
-	on: bool,
+	bits: Vec<Variable>,
+}
+impl fmt::Display for Term {
+	fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+		// just used as symbolic names, to avoid calling them "index 7" etc.
+		let names = ['a','b','c','d','e','f','g','h','i','j','k','l','m','n','o',
+		             'p','q','r','s','t','u','v','w','x','y','z'];
+		for var in self.bits.iter() {
+			// completely valid to extend the list of names... but this quickly gets
+			// larger than something that would be computable in finite time.
+			assert!(var.0 < names.len()); // so we can convert to a "simple" name.
+			if var.1 {
+				try!(write!(f, "{}", names[var.0]));
+			} else {
+				try!(write!(f, "{}'", names[var.0]));
+			}
+		}
+		write!(f, "")
+	}
+}
+
+impl Term {
+	pub fn new(vals: Vec<Variable>) -> Self { Term{bits: vals} }
+	pub fn compute(bits: &Vec<Bit>) -> Self {
+		let mut rv = vec![];
+		for (i, bit) in bits.iter().enumerate() {
+			match *bit {
+				Bit::On => rv.push((i, true)),
+				Bit::Off => rv.push((i, false)),
+				Bit::NA => panic!("NA bits during compute?"),
+			};
+		}
+		Term{bits: rv}
+	}
+	pub fn len(&self) -> usize { self.bits.len() }
+	// true when:
+	//   - these are the same terms sans one variable is opposite (a'b' and ab').
+	pub fn mergeable(&self, other: &Term) -> bool {
+		if self.len() != other.len() { // mismatched terms cannot be merged.
+			return false;
+		}
+		// they must have the same indices (represent the same vars)
+		// we should probably just enforce that the ordering is monotonic; we don't
+		// right now, which forces us to do a linear search every iteration.
+		for t in self.bits.iter() {
+			if let None = other.bits.iter().find(|&o| o.0 == t.0) {
+				return false;
+			}
+		}
+
+		// now count the number of bits that differ.
+		let mut n_different: usize = 0;
+		for t1 in self.bits.iter() {
+			if let Some(bit) = other.bits.iter().find(|&o| o.0 == t1.0) {
+				if bit.1 != t1.1 {
+					n_different = n_different + 1;
+				}
+			}
+		}
+		return n_different == 1;
+	}
+
+	fn remove_index(&mut self, idx: usize) {
+		self.bits.retain(|&b| b.0 != idx);
+	}
 }
 
 // An equation is a collection of Terms, where the OR of Terms gives the
 // result.
 #[derive(Clone, Debug, PartialEq)]
 struct Equation {
+	index: usize,
 	terms: Vec<Term>,
 }
 impl Equation {
+	// Takes a truth table and the index of the output variable to compute
+	// equations for.
+	fn new(tbl: &Truth, idx: usize) -> Self {
+		let mut rv: Vec<Term> = vec![];
+		for ent in tbl.table.iter() {
+			assert!(idx < ent.output.len());
+			// 0 bits don't contribute terms.
+			if ent.output[idx] == false {
+				continue;
+			}
+			// compute the term and add it to our list ...
+			rv.push(Term::compute(&ent.input));
+		}
+		Equation{index: idx, terms: rv}
+	}
+
 	// Tries to minimize this equation.
 	fn simplify(&mut self) {
 		// Essentially the only option we have is identifying opposite
 		// subexpressions: a'b' + a'b simplifies to a'.
-		for t in self.terms.iter() {
+		let mut idx_remove: (usize, usize) = Default::default(); // index, bit.
+		let mut term_remove: usize = Default::default();
+		let mut found = false;
+		for (t1_loc, t1) in self.terms.iter().enumerate() {
+			for (t2_loc, t2) in self.terms.iter().enumerate() {
+				if t1 == t2 { continue; }
+				if t1.mergeable(&t2) {
+					// Then we can drop the bit that differs.
+					found = true;
+					assert!(t1.len() == t2.len());
+
+					let mut iter = t1.bits.iter().zip(t2.bits.iter());
+					// Which bit is it?  The indices are the same, bit itself differs.
+					let index = iter.find(|&(b1, b2)| b1.0 == b2.0 && b1.1 != b2.1);
+					match index {
+						None => panic!("mergeable but no opposite bits?"),
+						Some((idx, _)) => {
+							idx_remove = (t1_loc, idx.0);
+							term_remove = t2_loc;
+							break;
+						}
+					};
+				}
+			}
+		}
+		if found {
+			self.terms[idx_remove.0].remove_index(idx_remove.1);
+			self.terms.remove(term_remove);
+			self.simplify();
 		}
 	}
+}
+
+impl std::fmt::Display for Equation {
+	fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+		try!(write!(f, "eqn{} = ", self.index));
+		for t in self.terms.iter() {
+			try!(write!(f, "{} + ", t));
+		}
+		write!(f, ";")
+	}
+}
+
+fn equations(truth: &Truth) -> Vec<Equation> {
+	assert!(!truth.table.is_empty());
+	for i in truth.table.iter() { // verify lengths are okay.
+		assert!(i.input.len() == truth.table[0].input.len());
+		assert!(i.output.len() == truth.table[0].output.len());
+	}
+	let mut rv: Vec<Equation> = vec![];
+	for b in 0..truth.table[0].output.len() {
+		rv.push(Equation::new(truth, b));
+	}
+	rv
 }
 
 struct Truth {
@@ -386,5 +511,39 @@ mod test {
 		println!("Simplified {} to {} entries.", truth.len(), ents.len());
 		ents.print(&mut std::io::stdout());
 */
+	}
+
+	#[test]
+	fn term_merge() {
+		let t1 = Term::new(vec![(0,false), (1,false), (2,false)]);
+		let t2 = Term::new(vec![(0,false), (1,true), (2,false)]);
+		let t3 = Term::new(vec![(0,false), (1,true), (2,false), (3,true)]);
+		let t4 = Term::new(vec![(0,false), (1,true), (2,false), (3,false)]);
+		assert!(t1.mergeable(&t2));
+		assert!(!t1.mergeable(&t3));
+		assert!(!t1.mergeable(&t4));
+		assert!(t2.mergeable(&t1));
+		assert!(!t2.mergeable(&t3));
+		assert!(!t2.mergeable(&t4));
+		assert!(!t3.mergeable(&t1));
+		assert!(!t3.mergeable(&t2));
+		assert!(t3.mergeable(&t4));
+		assert!(!t4.mergeable(&t1));
+		assert!(!t4.mergeable(&t2));
+		assert!(t4.mergeable(&t3));
+	}
+
+	#[test]
+	fn test_equations() {
+		let small = small_example();
+		let truth = parse(small.as_bytes(), 0, 3, 2);
+		assert_eq!(truth.len(), 8);
+		let ents = Truth::from_table(truth.table);
+		let mut eqns = equations(&ents);
+		assert_eq!(eqns.len(), ents.table[0].output.len());
+		for e in 0..eqns.len() {
+			println!("{}", eqns[e]);
+			eqns[e].simplify();
+		}
 	}
 }
