@@ -266,8 +266,6 @@ struct Truth {
 impl Truth {
 	fn default() -> Self { Truth{table: vec![]} }
 
-	fn from_table(v: Vec<Entry>) -> Self { Truth{table: v} }
-
 	#[allow(dead_code)]
 	fn new(inp: Vec<Vec<bool>>, outp: Vec<Vec<bool>>) -> Self {
 		assert_eq!(inp.len(), outp.len());
@@ -279,11 +277,13 @@ impl Truth {
 	}
 
 	fn solution(&self, inp: Vec<bool>) -> Vec<bool> {
+		// convert to a vector of bits.
 		let inp_bit: Vec<Bit> = inp.iter().map(|b| { Bit::new(*b) }).collect();
+		// find the entry for which the input bit pattern matches.
 		let foo = self.table.iter().find(|tbl| { tbl.input == inp_bit });
 		match foo {
 			None => panic!("cannot find bit pattern {:?}", inp),
-			Some(x) => x.output.clone(),
+			Some(x) => x.output.clone(), // return the output part of the Entry.
 		}
 	}
 
@@ -329,37 +329,17 @@ fn main() {
 	         input_bits, output_bits);
 	println!("({} input lines.)", tbl.len());
 
-	let gray = gray_code(input_bits);
-	for g in gray.iter() {
-		assert!(g.len() == input_bits);
-		for bit in g.iter() {
-			print!("{}", if *bit { 1 } else { 0 });
-		}
-		println!("");
+	let mut eqns = equations(&tbl);
+	assert_eq!(eqns.len(), tbl.table[0].output.len());
+	for e in 0..eqns.len() {
+		eqns[e].simplify();
+		println!("{}", eqns[e]);
 	}
-
-	// The naive, brute force approach:
-	// We have 2^{input_bits} entries.  Choose one of these entries arbitrarily;
-	// now we have 2^{input_bits-1} entries remaining.  Choose one of the
-	// 2^{input_bits-1} entries arbitrarily; repeat until all choices have been
-	// made.  Evaluate how long that is, and then backtrack and make choices
-	// differently; the shortest one wins.
-	// If we rename 'input_bits' to 'b', then we'll have a total of:
-	//   b choose 1 + (b-1) choose 1 + (b-2) choose 1 + ...
-	//   == \prod_{i=1}^{b} i choose 1
-	// Orderings to sift through.  The simple formula for n-choose-k is
-	// (n!)/(k!*(n-k)!), so that means we'll have to evaluate:
-	//   (b!)/(1*(b-1)!) + ((b-1)/(1*(b-2)!) + ...
-	//   == \prod_{i=1}^{b} (i!)/((i-1)!) == \prod_{i=1}^{b} i
-	//   == b!
-	// states.
-
-	let blah = vec![false,false,false,true,true,false,false];
-	println!("soln: {:?}", tbl.solution(blah));
 }
 
 // really this returns a Vec<[usize; nbits]>, but Rust's variable-length arrays
 // are vectors.
+#[allow(dead_code)]
 fn gray_code(nbits: usize) -> Vec<Vec<bool>> {
 	let gray1: Vec<Vec<bool>> = vec![vec![false], vec![true]];
 	let mut cur = gray1;
@@ -502,15 +482,10 @@ mod test {
 	}
 
 	#[test]
-	fn simplify_small() {
+	fn parse_small() {
 		let small = small_example();
 		let truth = parse(small.as_bytes(), 0, 3, 2);
 		assert_eq!(truth.len(), 8);
-/*
-		let ents = Truth::from_table(merge(&truth.table));
-		println!("Simplified {} to {} entries.", truth.len(), ents.len());
-		ents.print(&mut std::io::stdout());
-*/
 	}
 
 	#[test]
@@ -534,13 +509,12 @@ mod test {
 	}
 
 	#[test]
-	fn test_equations() {
+	fn small_simplify() {
 		let small = small_example();
 		let truth = parse(small.as_bytes(), 0, 3, 2);
 		assert_eq!(truth.len(), 8);
-		let ents = Truth::from_table(truth.table);
-		let mut eqns = equations(&ents);
-		assert_eq!(eqns.len(), ents.table[0].output.len());
+		let mut eqns = equations(&truth);
+		assert_eq!(eqns.len(), truth.table[0].output.len());
 		for e in 0..eqns.len() {
 			println!("{}", eqns[e]);
 			eqns[e].simplify();
