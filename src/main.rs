@@ -43,8 +43,17 @@
 // may be more profitable to keep the common subexpression "ab'" so that we can
 // merge the solutions for "x" and "y".
 extern crate csv;
+extern crate docopt;
+use docopt::Docopt;
 use std::fmt;
-use std::io;
+use std::fs::File;
+use std::path::Path;
+
+const USAGE: &'static str = "
+Usage: minterm --table <truth> --ivar=<foo>... --ovar=<bar>...
+
+Options:
+";
 
 // A bit in our system is either on, off, or we don't care about it.  In the
 // example above, dropping "a" means we don't care about it.
@@ -130,6 +139,7 @@ impl fmt::Display for Term {
 }
 
 impl Term {
+	#[cfg(test)]
 	pub fn new(vals: Vec<Variable>) -> Self { Term{bits: vals} }
 	pub fn compute(bits: &Vec<Bit>) -> Self {
 		let mut rv = vec![];
@@ -181,11 +191,12 @@ impl Term {
 struct Equation {
 	index: usize,
 	terms: Vec<Term>,
+	varname: String,
 }
 impl Equation {
 	// Takes a truth table and the index of the output variable to compute
 	// equations for.
-	fn new(tbl: &Truth, idx: usize) -> Self {
+	fn new(tbl: &Truth, idx: usize, vn: &str) -> Self {
 		let mut rv: Vec<Term> = vec![];
 		for ent in tbl.table.iter() {
 			assert!(idx < ent.output.len());
@@ -196,7 +207,7 @@ impl Equation {
 			// compute the term and add it to our list ...
 			rv.push(Term::compute(&ent.input));
 		}
-		Equation{index: idx, terms: rv}
+		Equation{index: idx, terms: rv, varname: vn.to_string()}
 	}
 
 	// Tries to minimize this equation.
@@ -238,7 +249,7 @@ impl Equation {
 
 impl std::fmt::Display for Equation {
 	fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-		try!(write!(f, "eqn{} = ", self.index));
+		try!(write!(f, "{} = ", self.varname));
 		for t in self.terms.iter() {
 			try!(write!(f, "{} + ", t));
 		}
@@ -246,15 +257,16 @@ impl std::fmt::Display for Equation {
 	}
 }
 
-fn equations(truth: &Truth) -> Vec<Equation> {
+fn equations(truth: &Truth, outvars: Vec<&str>) -> Vec<Equation> {
 	assert!(!truth.table.is_empty());
 	for i in truth.table.iter() { // verify lengths are okay.
 		assert!(i.input.len() == truth.table[0].input.len());
 		assert!(i.output.len() == truth.table[0].output.len());
 	}
+	assert!(truth.table[0].output.len() == outvars.len());
 	let mut rv: Vec<Equation> = vec![];
 	for b in 0..truth.table[0].output.len() {
-		rv.push(Equation::new(truth, b));
+		rv.push(Equation::new(truth, b, outvars[b]));
 	}
 	rv
 }
@@ -289,6 +301,7 @@ impl Truth {
 
 	fn len(&self) -> usize { return self.table.len() }
 
+	#[allow(dead_code)]
 	fn print(&self, wrt: &mut std::io::Write) {
 		for elem in self.table.iter() {
 			for i in elem.input.iter() {
@@ -308,10 +321,22 @@ impl Truth {
 }
 
 fn main() {
-	let input_bits = 7;
-	let output_bits = 4;
+	let args = Docopt::new(USAGE)
+		.unwrap_or_else(|e| e.exit())
+		.parse()
+		.unwrap_or_else(|e| e.exit());
+	println!("vars: '{:?}'", args.get_vec("--ivar"));
+	println!("truth: '{}'", args.get_str("<truth>"));
+	println!("map: '{:?}'", args);
+	let input_bits = args.get_count("--ivar") as usize;
+	let output_bits = args.get_count("--ovar") as usize;
 	let header_lines = 2;
-	let tbl = parse(io::stdin(), header_lines, input_bits, output_bits);
+	let csvtable = Path::new(args.get_str("<truth>"));
+	let fp = match File::open(&csvtable) {
+		Err(e) => panic!("error {} opening {}", e, args.get_str("<truth>")),
+		Ok(f) => f,
+	};
+	let tbl = parse(fp, header_lines, input_bits, output_bits);
 	for ent in tbl.table.iter() {
 		if ent.input.len() != input_bits {
 			println!("Incorrect number of bits ({}, should be {}) for elem {:?}.",
@@ -329,7 +354,7 @@ fn main() {
 	         input_bits, output_bits);
 	println!("({} input lines.)", tbl.len());
 
-	let mut eqns = equations(&tbl);
+	let mut eqns = equations(&tbl, args.get_vec("--ovar"));
 	assert_eq!(eqns.len(), tbl.table[0].output.len());
 	for e in 0..eqns.len() {
 		eqns[e].simplify();
@@ -513,7 +538,7 @@ mod test {
 		let small = small_example();
 		let truth = parse(small.as_bytes(), 0, 3, 2);
 		assert_eq!(truth.len(), 8);
-		let mut eqns = equations(&truth);
+		let mut eqns = equations(&truth, vec!["foo", "bar"]);
 		assert_eq!(eqns.len(), truth.table[0].output.len());
 		for e in 0..eqns.len() {
 			println!("{}", eqns[e]);
