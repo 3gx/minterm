@@ -118,20 +118,19 @@ type Variable = (usize, bool);
 #[derive(Clone, Debug, PartialEq)]
 struct Term {
 	bits: Vec<Variable>,
+	pub names: Vec<String>,
 }
 impl fmt::Display for Term {
 	fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-		// just used as symbolic names, to avoid calling them "index 7" etc.
-		let names = ['a','b','c','d','e','f','g','h','i','j','k','l','m','n','o',
-		             'p','q','r','s','t','u','v','w','x','y','z'];
+		assert!(self.names.len() >= self.bits.len());
 		for var in self.bits.iter() {
 			// completely valid to extend the list of names... but this quickly gets
 			// larger than something that would be computable in finite time.
-			assert!(var.0 < names.len()); // so we can convert to a "simple" name.
+			assert!(var.0 < self.names.len()); // so we can convert to a "simple" name
 			if var.1 {
-				try!(write!(f, "{}", names[var.0]));
+				try!(write!(f, "{}", self.names[var.0]));
 			} else {
-				try!(write!(f, "{}'", names[var.0]));
+				try!(write!(f, "{}'", self.names[var.0]));
 			}
 		}
 		write!(f, "")
@@ -140,7 +139,13 @@ impl fmt::Display for Term {
 
 impl Term {
 	#[cfg(test)]
-	pub fn new(vals: Vec<Variable>) -> Self { Term{bits: vals} }
+	pub fn new(vals: Vec<Variable>) -> Self {
+		// just used as symbolic names, to avoid calling them "index 7" etc.
+		let nms = ["a","b","c","d","e","f","g","h","i","j","k","l","m","n","o",
+		           "p","q","r","s","t","u","v","w","x","y","z"];
+		let copy = nms.iter().map(|elt| elt.to_string()).collect();
+		Term{bits: vals, names: copy}
+	}
 	pub fn compute(bits: &Vec<Bit>) -> Self {
 		let mut rv = vec![];
 		for (i, bit) in bits.iter().enumerate() {
@@ -150,7 +155,10 @@ impl Term {
 				Bit::NA => panic!("NA bits during compute?"),
 			};
 		}
-		Term{bits: rv}
+		let nms = ["a","b","c","d","e","f","g","h","i","j","k","l","m","n","o",
+		           "p","q","r","s","t","u","v","w","x","y","z"];
+		let copy = nms.iter().map(|elt| elt.to_string()).collect();
+		Term{bits: rv, names: copy}
 	}
 	pub fn len(&self) -> usize { self.bits.len() }
 	// true when:
@@ -194,9 +202,13 @@ struct Equation {
 	varname: String,
 }
 impl Equation {
+	/// @param tbl the truth table to compute this from
+	/// @param idx the index of the output variable we're creating
+	/// @param vn the variable name of the output variable
+	/// @param invars the names of the input variables
 	// Takes a truth table and the index of the output variable to compute
 	// equations for.
-	fn new(tbl: &Truth, idx: usize, vn: &str) -> Self {
+	fn new(tbl: &Truth, idx: usize, vn: &str, invars: &Vec<String>) -> Self {
 		let mut rv: Vec<Term> = vec![];
 		for ent in tbl.table.iter() {
 			assert!(idx < ent.output.len());
@@ -205,7 +217,9 @@ impl Equation {
 				continue;
 			}
 			// compute the term and add it to our list ...
-			rv.push(Term::compute(&ent.input));
+			let mut term = Term::compute(&ent.input);
+			term.names = invars.clone();
+			rv.push(term);
 		}
 		Equation{index: idx, terms: rv, varname: vn.to_string()}
 	}
@@ -257,7 +271,8 @@ impl std::fmt::Display for Equation {
 	}
 }
 
-fn equations(truth: &Truth, outvars: Vec<&str>) -> Vec<Equation> {
+fn equations(truth: &Truth, outvars: Vec<&str>, invars: Vec<String>) ->
+	Vec<Equation> {
 	assert!(!truth.table.is_empty());
 	for i in truth.table.iter() { // verify lengths are okay.
 		assert!(i.input.len() == truth.table[0].input.len());
@@ -266,7 +281,7 @@ fn equations(truth: &Truth, outvars: Vec<&str>) -> Vec<Equation> {
 	assert!(truth.table[0].output.len() == outvars.len());
 	let mut rv: Vec<Equation> = vec![];
 	for b in 0..truth.table[0].output.len() {
-		rv.push(Equation::new(truth, b, outvars[b]));
+		rv.push(Equation::new(truth, b, outvars[b], &invars));
 	}
 	rv
 }
@@ -354,7 +369,10 @@ fn main() {
 	         input_bits, output_bits);
 	println!("({} input lines.)", tbl.len());
 
-	let mut eqns = equations(&tbl, args.get_vec("--ovar"));
+	let as_strings = args.get_vec("--ivar").iter().map(
+		|elt| elt.to_string()
+	).collect();
+	let mut eqns = equations(&tbl, args.get_vec("--ovar"), as_strings);
 	assert_eq!(eqns.len(), tbl.table[0].output.len());
 	for e in 0..eqns.len() {
 		eqns[e].simplify();
@@ -538,7 +556,10 @@ mod test {
 		let small = small_example();
 		let truth = parse(small.as_bytes(), 0, 3, 2);
 		assert_eq!(truth.len(), 8);
-		let mut eqns = equations(&truth, vec!["foo", "bar"]);
+		let ivar: Vec<String> = vec!["A", "B", "C"].iter().map(
+			|e| e.to_string()
+		).collect();
+		let mut eqns = equations(&truth, vec!["foo", "bar"], ivar);
 		assert_eq!(eqns.len(), truth.table[0].output.len());
 		for e in 0..eqns.len() {
 			println!("{}", eqns[e]);
