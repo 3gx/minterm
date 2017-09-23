@@ -55,56 +55,22 @@ Usage: minterm --table <truth> --ivar=<foo>... --ovar=<bar>...
 Options:
 ";
 
-// A bit in our system is either on, off, or we don't care about it.  In the
-// example above, dropping "a" means we don't care about it.
-#[derive(Clone, Copy, Debug, PartialEq)]
-enum Bit { On, Off, NA }
-impl Bit {
-	fn new(b: bool) -> Self { if b { Bit::On } else { Bit::Off } }
-}
-impl fmt::Display for Bit {
-	fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-		match *self {
-			Bit::On => write!(f, "1"),
-			Bit::Off => write!(f, "0"),
-			Bit::NA => write!(f, "x"),
-		}
-	}
-}
-
 // A single entry in a truth table.
 #[derive(Clone, Debug, PartialEq)]
 struct Entry {
-	input: Vec<Bit>,
+	input: Vec<bool>,
 	output: Vec<bool>,
 }
 impl Entry {
 	fn default() -> Self { Entry{input: vec![], output: vec![]} }
 	#[allow(dead_code)]
 	fn new(inp: Vec<bool>, outp: Vec<bool>) -> Self {
-		let mut bits: Vec<Bit>  = vec![];
-		for b in inp.iter() {
-			bits.push(Bit::new(*b));
-		}
-		Entry{input: bits, output: outp.clone()}
+		Entry{input: inp.clone(), output: outp.clone()}
 	}
 
 	fn clear(&mut self) {
 		self.input.clear();
 		self.output.clear();
-	}
-
-	// returns the number of bits that the inputs differ by.
-	fn n_bit_differs(&self, entry: &Entry) -> usize {
-		assert!(self.input.len() == entry.input.len());
-		let zit = self.input.iter().zip(entry.input.iter());
-		return zit.fold(0, |acc, (lhs, rhs)| {
-			if *lhs == Bit::NA || *rhs == Bit::NA || *lhs == *rhs {
-				acc
-			} else {
-				acc + 1
-			}
-		});
 	}
 }
 
@@ -146,14 +112,10 @@ impl Term {
 		let copy = nms.iter().map(|elt| elt.to_string()).collect();
 		Term{bits: vals, names: copy}
 	}
-	pub fn compute(bits: &Vec<Bit>) -> Self {
+	pub fn compute(bits: &Vec<bool>) -> Self {
 		let mut rv = vec![];
 		for (i, bit) in bits.iter().enumerate() {
-			match *bit {
-				Bit::On => rv.push((i, true)),
-				Bit::Off => rv.push((i, false)),
-				Bit::NA => panic!("NA bits during compute?"),
-			};
+			rv.push((i, *bit));
 		}
 		let nms = ["a","b","c","d","e","f","g","h","i","j","k","l","m","n","o",
 		           "p","q","r","s","t","u","v","w","x","y","z"];
@@ -303,11 +265,10 @@ impl Truth {
 		Truth{table: entlist}
 	}
 
+	#[allow(dead_code)]
 	fn solution(&self, inp: Vec<bool>) -> Vec<bool> {
-		// convert to a vector of bits.
-		let inp_bit: Vec<Bit> = inp.iter().map(|b| { Bit::new(*b) }).collect();
 		// find the entry for which the input bit pattern matches.
-		let foo = self.table.iter().find(|tbl| { tbl.input == inp_bit });
+		let foo = self.table.iter().find(|tbl| { tbl.input == inp });
 		match foo {
 			None => panic!("cannot find bit pattern {:?}", inp),
 			Some(x) => x.output.clone(), // return the output part of the Entry.
@@ -444,7 +405,7 @@ fn parse<T: std::io::Read>(data: T, nheader: usize, nin: usize, nout: usize) ->
 					false
 				},
 			};
-			ent.input.push(Bit::new(on));
+			ent.input.push(on);
 		}
 
 		// we take the right*most* NOUT columns for the outputs.  Note that this is
