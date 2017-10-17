@@ -319,7 +319,7 @@ fn main() {
 		}
 	}
 	let two: i32 = 2;
-	if tbl.len() != two.pow(input_bits as u32) as usize {
+	if tbl.len() < two.pow(input_bits as u32) as usize {
 		println!("Table is too short ({} elems) for {} bits.", tbl.len(),
 		         input_bits);
 		std::process::exit(1);
