@@ -301,8 +301,6 @@ fn main() {
 		.unwrap_or_else(|e| e.exit())
 		.parse()
 		.unwrap_or_else(|e| e.exit());
-	println!("vars: '{:?}'", args.get_vec("--ivar"));
-	println!("truth: '{}'", args.get_str("<truth>"));
 	println!("map: '{:?}'", args);
 	let input_bits = args.get_count("--ivar") as usize;
 	let output_bits = args.get_count("--ovar") as usize;
